@@ -35,6 +35,8 @@ import Codec.Borsh.Internal.Util.ByteSwap
 -- | Decoder
 --
 -- A decoder describes how to match against a single chunk of the input.
+--
+-- For decoders for primitive types, use 'Codec.Borsh.FromBorsh' instances.
 newtype Decoder s a = Decoder {
       matchChunk :: LocatedChunk -> ST s (LocatedChunk, DecodeResult s a)
     }
@@ -43,9 +45,12 @@ newtype Decoder s a = Decoder {
   Operations supported by the 'Decoder' monad
 -------------------------------------------------------------------------------}
 
+-- | Lift an 'ST' operation into the 'Decoder' monad.
 liftDecoder :: ST s a -> Decoder s a
 liftDecoder sa = Decoder $ \chunk -> (chunk, ) . DecodeDone <$> sa
 
+-- | Decode a value encoded in little endian byte order (e.g. as mandated by the
+-- [Borsh](https://borsh.io) spec).
 decodeLittleEndian :: forall s a. ByteSwap a => Decoder s a
 decodeLittleEndian = Decoder aux
   where
@@ -57,15 +62,43 @@ decodeLittleEndian = Decoder aux
           Nothing ->
             return (chunk, DecodeNeedsData decodeLittleEndian)
 
-decodeLargeToken :: Word32 -> Decoder s L.ByteString
+-- | Large token of known length that spans multiple chunks
+--
+-- This is NOT incremental: all chunks will be read into memory before the
+-- result is returned. Primarily useful for large types that are not
+-- easily split into (valid) chunks, such as UTF8-encoded text (if were
+-- wanted to split that, we'd have to split it at UTF8 boundaries).
+decodeLargeToken ::
+     Word32 -- ^ Number of bytes to decode
+  -> Decoder s L.ByteString
 decodeLargeToken n = Decoder $ \chunk ->
     return (chunk, DecodeLargeToken n return)
 
-decodeIncremental :: Word32 -> Decoder s a -> Decoder s [a]
+-- | Incremental interface
+--
+-- When decoding large objects such as lists, we do not want to bring all
+-- required chunks into memory before decoding the list. Instead, we want to
+-- decode the list elements as we go. In this case, 'DecodeIncremental' can
+-- be used to repeatedly decode a value using decoder for the elements.
+--
+-- NOTE: This interface is incremental in the sense that the /input chunks/
+-- are read one at a time. It is /NOT/ incremental in the generated /output/.
+decodeIncremental ::
+     Word32      -- ^ Number of elements in the sequence to decode
+  -> Decoder s a -- ^ 'Decoder' to run for the individual elements
+  -> Decoder s [a]
 decodeIncremental n d = Decoder $ \chunk ->
     return (chunk, DecodeIncremental n d return)
 
-decodeIncremental_ :: Word32 -> Decoder s () -> Decoder s ()
+-- | Variation on 'decoreIncremental', where we do not accumulate results
+--
+-- This is useful for example for datatypes that we can update imperatively
+-- (using the 'ST' monad), such as mutable arrays. It could also be used to skip
+-- over unused parts of the input.
+decodeIncremental_ ::
+     Word32       -- ^ Number of elements in the sequence to decode
+  -> Decoder s () -- ^ 'Decoder' to run for the individual elements
+  -> Decoder s ()
 decodeIncremental_ n d = Decoder $ \chunk ->
     return (chunk, DecodeIncremental_ n d $ return ())
 
@@ -90,10 +123,7 @@ data DecodeResult s a where
 
   -- | Large token of known length that spans multiple chunks
   --
-  -- This is NOT incremental: all chunks will be read into memory before the
-  -- function is applied. Primarily useful for large types that are not
-  -- easily split into (valid) chunks, such as UTF8-encoded text (if were
-  -- wanted to split that, we'd have to split it at UTF8 boundaries).
+  -- See 'decodeLargeToken' for discussion.
   --
   -- The continuation will be called with a lazy bytestring of precisely the
   -- requested length (provided enough input is available, of course), along
@@ -105,14 +135,7 @@ data DecodeResult s a where
 
   -- | Incremental interface
   --
-  -- When decoding large objects such as lists, we do not want to bring all
-  -- required chunks into memory before decoding the list. Instead, we want to
-  -- decode the list elements as we go. In this case, 'DecodeIncremental' can
-  -- be used to repeatedly decode a value using decoder for the elements; when
-  -- all elements have been processed, the continuation decoder is called.
-  --
-  -- NOTE: This interface is incremental in the sense that the /input chunks/
-  -- are read one at a time. It is /NOT/ incremental in the generated /output/.
+  -- See 'decodeIncremental' for discussion.
   DecodeIncremental ::
        Word32               -- ^ How often to repeat the smaller decoder
     -> Decoder s a          -- ^ Decoder to repeat
@@ -121,9 +144,7 @@ data DecodeResult s a where
 
   -- | Variation on 'DecodeIncremental', where we do not accumulate results
   --
-  -- This is useful for example for datatypes that we can update imperatively,
-  -- such as mutable arrays. It could also be used to skip over unused parts
-  -- of the input.
+  -- See 'decodeIncremental_' for discussion.
   DecodeIncremental_ ::
        Word32        -- ^ How often to repeat the smaller decoder
     -> Decoder s ()  -- ^ Decoder to repeat (imperatively handling each element)
@@ -256,8 +277,13 @@ processIncremental_ count d k = go count
   Top-level API
 -------------------------------------------------------------------------------}
 
+-- | Run decoder
 deserialiseByteString ::
      (forall s. Decoder s a)
+  -- ^ Decoder
   -> L.ByteString
+  -- ^ Input
   -> Either DeserialiseFailure (L.ByteString, ByteOffset, a)
+  -- ^ Left-over input, offset of the left-over input relative to the start,
+  -- and the result.
 deserialiseByteString d = runIDecode (runIncr (runDecoder d))

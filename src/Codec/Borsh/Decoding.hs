@@ -51,6 +51,7 @@ import qualified Data.Vector.Generic         as G
 import qualified Data.Vector.Generic.Mutable as GM
 
 import Codec.Borsh.Incremental
+import Codec.Borsh.Incremental.Decoder (decodeLittleEndian)
 import Codec.Borsh.Internal.Util.BitwiseCast
 import Codec.Borsh.Internal.Util.SOP
 import Data.FixedSizeArray (FixedSizeArray, MFixedSizeArray)
