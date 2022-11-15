@@ -1,11 +1,11 @@
 module Codec.Borsh.Internal.Util.BitwiseCast (BitwiseCast(..)) where
 
 import Data.Int
+import Data.WideWord.Int128
+import Data.WideWord.Word128
 import Data.Word
 import GHC.Float
 
-import Data.Int128 (Int128)
-import Data.Word128 (Word128)
 
 class BitwiseCast a b where
   -- | Bit-for-bit copy from @a@ to @b@
