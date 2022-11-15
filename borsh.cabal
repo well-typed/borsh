@@ -1,6 +1,6 @@
 cabal-version:      3.0
 name:               borsh
-version:            0.1.0
+version:            0.2.0
 synopsis:           Implementation of BORSH serialisation
 description:
   This package provides type classes and combinators for
@@ -33,7 +33,6 @@ tested-with:
 source-repository head
   type:     git
   location: https://github.com/well-typed/borsh
-
 
 common lang
   ghc-options:
