@@ -1,3 +1,4 @@
+{-# LANGUAGE RoleAnnotations #-}
 -- | Fixed size arrays
 --
 -- Intended for qualified import
@@ -35,6 +36,7 @@ import qualified Data.Vector.Generic.Mutable as GM
 --
 -- NOTE: For convenience, this is an instance of 'G.Vector', but the invariant
 -- that the length of the vector should never change is not currently checked.
+type role FixedSizeArray nominal _
 newtype FixedSizeArray (n :: Nat) (a :: Type) = FromArray {
       toArray :: Vector a
     }
