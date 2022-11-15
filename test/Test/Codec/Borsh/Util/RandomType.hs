@@ -18,15 +18,15 @@ import Data.ByteString (ByteString)
 import Data.FixedSizeArray (FixedSizeArray)
 import Data.Foldable (toList)
 import Data.Int
-import Data.Int128
 import Data.Kind
 import Data.Map (Map)
 import Data.Maybe (mapMaybe, maybeToList)
 import Data.Profunctor
 import Data.Set (Set)
 import Data.Text (Text)
+import Data.WideWord.Int128
+import Data.WideWord.Word128
 import Data.Word
-import Data.Word128
 import Generics.SOP
 import Generics.SOP.Dict
 import Generics.SOP.NP (map_NP)
@@ -371,7 +371,7 @@ shrinkIntegral :: (Integral a, Num b) => ShrinkFun a b
 shrinkIntegral = ShrinkFun $ return . fromIntegral
 
 shrinkU128 :: ShrinkFun Word128 Word64
-shrinkU128 = ShrinkFun $ return . word128LS64
+shrinkU128 = ShrinkFun $ return . word128Lo64
 
 shrinkDouble :: ShrinkFun Double Word64
 shrinkDouble = ShrinkFun $ return . castDoubleToWord64

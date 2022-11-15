@@ -23,6 +23,8 @@ import Data.Map (Map)
 import Data.Proxy
 import Data.Set (Set)
 import Data.Text (Text)
+import Data.WideWord.Int128
+import Data.WideWord.Word128
 import Data.Word
 import Generics.SOP
 import GHC.TypeNats
@@ -35,8 +37,6 @@ import Codec.Borsh.Decoding
 import Codec.Borsh.Encoding
 import Codec.Borsh.Incremental
 import Data.FixedSizeArray (FixedSizeArray)
-import Data.Int128
-import Data.Word128 (Word128)
 
 {-------------------------------------------------------------------------------
   Size information

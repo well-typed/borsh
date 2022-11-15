@@ -39,6 +39,8 @@ import Data.Map (Map)
 import Data.Set (Set)
 import Data.SOP
 import Data.Text (Text)
+import Data.WideWord.Word128
+import Data.WideWord.Int128
 import Data.Word
 
 import qualified Data.ByteString         as S
@@ -51,8 +53,6 @@ import qualified Data.Text.Encoding      as Text
 import Data.FixedSizeArray (FixedSizeArray)
 import Codec.Borsh.Internal.Util.ByteString
 import Codec.Borsh.Internal.Util.SOP (indices)
-import Data.Word128
-import Data.Int128
 
 {-------------------------------------------------------------------------------
   Encoder definition
@@ -99,11 +99,11 @@ encodeF64 = Encoder B.doubleLE
 
 encodeU128 :: Encoder Word128
 encodeU128 = Encoder $
-    \w128 -> B.word64LE (word128LS64 w128) <> B.word64LE (word128MS64 w128)
+    \w128 -> B.word64LE (word128Lo64 w128) <> B.word64LE (word128Hi64 w128)
 
 encodeI128 :: Encoder Int128
 encodeI128 = Encoder $
-    \i128 -> B.word64LE (int128LS64 i128) <> B.word64LE (int128MS64 i128)
+    \i128 -> B.word64LE (int128Lo64 i128) <> B.word64LE (int128Hi64 i128)
 
 -- Encoding 'Text'
 --

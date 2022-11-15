@@ -36,6 +36,8 @@ import Data.Proxy
 import Data.Set (Set)
 import Data.STRef
 import Data.Text (Text)
+import Data.WideWord.Word128
+import Data.WideWord.Int128
 import Data.Word
 import Generics.SOP
 import GHC.TypeLits
@@ -52,8 +54,6 @@ import Codec.Borsh.Incremental
 import Codec.Borsh.Internal.Util.BitwiseCast
 import Codec.Borsh.Internal.Util.SOP
 import Data.FixedSizeArray (FixedSizeArray, MFixedSizeArray)
-import Data.Word128 (Word128)
-import Data.Int128 (Int128)
 
 import qualified Data.FixedSizeArray as FSA
 
