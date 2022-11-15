@@ -12,7 +12,6 @@ module Codec.Borsh.Incremental (
     -- | These functions comprise a low-level decoder interface which will not
     -- be necessary for most applications. Most applications should simply use
     -- 'Codec.Borsh.Class.deserialiseBorsh'
-  , decodeLittleEndian
   , decodeLargeToken
   , decodeIncremental
   , decodeIncremental_

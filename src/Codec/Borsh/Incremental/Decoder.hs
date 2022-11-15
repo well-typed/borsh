@@ -43,9 +43,12 @@ newtype Decoder s a = Decoder {
   Operations supported by the 'Decoder' monad
 -------------------------------------------------------------------------------}
 
+-- | Lift an 'ST' operation into the 'Decoder' monad.
 liftDecoder :: ST s a -> Decoder s a
 liftDecoder sa = Decoder $ \chunk -> (chunk, ) . DecodeDone <$> sa
 
+-- | Decode a value encoded in little endian byte order (e.g. as mandated by the
+-- [Borsh](https://borsh.io) spec).
 decodeLittleEndian :: forall s a. ByteSwap a => Decoder s a
 decodeLittleEndian = Decoder aux
   where
@@ -57,15 +60,33 @@ decodeLittleEndian = Decoder aux
           Nothing ->
             return (chunk, DecodeNeedsData decodeLittleEndian)
 
-decodeLargeToken :: Word32 -> Decoder s L.ByteString
+-- | Decode a token whose encoding spans chunk boundaries and is of known
+-- length. This is primarily useful for large types that are not easily split
+-- into valid chunks (e.g. UTF8-encoded text). See 'DecodeLargeToken' for more
+-- information.
+decodeLargeToken ::
+     Word32 -- ^ Number of bytes to decode
+  -> Decoder s L.ByteString
 decodeLargeToken n = Decoder $ \chunk ->
     return (chunk, DecodeLargeToken n return)
 
-decodeIncremental :: Word32 -> Decoder s a -> Decoder s [a]
+-- | Decode a sequence of encoded values incrementally. This avoids bringing all
+-- chunks of the encoded sequence into memory at the same time. See
+-- 'DecodeIncremental' for more information.
+decodeIncremental ::
+     Word32      -- ^ Number of elements in the sequence to decode
+  -> Decoder s a -- ^ 'Decoder' to run for the individual elements
+  -> Decoder s [a]
 decodeIncremental n d = Decoder $ \chunk ->
     return (chunk, DecodeIncremental n d return)
 
-decodeIncremental_ :: Word32 -> Decoder s () -> Decoder s ()
+-- | Decode a sequence of encoded values incrementally, ignoring the results.
+-- This avoids bringing all chunks of the encoded sequence into memory at the
+-- same time. See 'DecodeIncremental_' for more information.
+decodeIncremental_ ::
+     Word32       -- ^ Number of elements in the sequence to decode
+  -> Decoder s () -- ^ 'Decoder' to run for the individual elements
+  -> Decoder s ()
 decodeIncremental_ n d = Decoder $ \chunk ->
     return (chunk, DecodeIncremental_ n d $ return ())
 
