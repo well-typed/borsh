@@ -19,7 +19,11 @@ import Codec.Borsh
 
 data PolyStruct a = Poly a a a
   deriving (Show, Eq, Ord, GHC.Generic, Generic)
-  deriving (BorshSize, ToBorsh, FromBorsh) via Struct (PolyStruct a)
+  deriving ( BorshSize
+           , BorshMaxSize
+           , ToBorsh
+           , FromBorsh
+           ) via Struct (PolyStruct a)
 
 instance Arbitrary a => Arbitrary (PolyStruct a) where
   arbitrary = Poly <$> arbitrary <*> arbitrary <*> arbitrary
@@ -31,7 +35,11 @@ instance Arbitrary a => Arbitrary (PolyStruct a) where
 
 data SimpleStruct1 = Struct1 Word8 () Word64
   deriving (Show, Eq, Ord, GHC.Generic, Generic)
-  deriving (BorshSize, ToBorsh, FromBorsh) via Struct SimpleStruct1
+  deriving ( BorshSize
+           , BorshMaxSize
+           , ToBorsh
+           , FromBorsh
+           ) via Struct SimpleStruct1
 
 instance Arbitrary SimpleStruct1 where
   arbitrary = Struct1 <$> arbitrary <*> arbitrary <*> arbitrary
@@ -48,7 +56,7 @@ instance Arbitrary SimpleStruct1 where
 
 data SimpleStruct2 = Struct2 () SimpleStruct1 Word16
   deriving (Show, Eq, Ord, GHC.Generic, Generic)
-  deriving (ToBorsh, FromBorsh) via Struct SimpleStruct2
+  deriving (BorshMaxSize, ToBorsh, FromBorsh) via Struct SimpleStruct2
 
 instance BorshSize SimpleStruct2 where
   type StaticBorshSize SimpleStruct2 = 'HasKnownSize
