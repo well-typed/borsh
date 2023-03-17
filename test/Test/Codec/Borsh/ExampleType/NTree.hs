@@ -15,18 +15,9 @@ import Test.Codec.Borsh.Util.QuickCheck
 
 -- | N-ary trees
 data NTree a = NLeaf | NNode a [NTree a]
-  deriving (
-      Show
-    , Eq
-    , Ord
-    , Functor
-    , Foldable
-    , Traversable
-    , GHC.Generic
-    , Generic
-    , BorshSize
-    , ToBorsh
-    )
+  deriving (Show, Eq, Ord, Functor, Foldable, Traversable, GHC.Generic, Generic)
+  deriving (BorshSize, ToBorsh) via AsEnum (NTree a)
+
  -- Manual FromBorsh instance as a sort of "golden" test for the derived ToBorsh
 -- instance
 instance FromBorsh a => FromBorsh (NTree a) where

@@ -1,5 +1,6 @@
 -- 11 iterations needed for GHC 9.2.2
 {-# OPTIONS_GHC -fconstraint-solver-iterations=11 #-}
+{-# OPTIONS_GHC -Wno-redundant-constraints #-}
 
 module Test.Codec.Borsh.Util.RandomType (
     -- * Types
@@ -366,7 +367,7 @@ deriving instance Show SomeBorshType
 borshTypeMaxSize :: BorshType a -> Maybe (Dict BorshMaxSize a)
 borshTypeMaxSize = \case
     BtSimple bt -> borshSimpleTypeMaxSize bt
-    BtArray l bt -> do
+    BtArray _ bt -> do
       Dict <- borshTypeMaxSize bt
       return Dict
     BtVec _ -> Nothing

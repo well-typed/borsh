@@ -1,3 +1,5 @@
+{-# LANGUAGE CPP #-}
+
 {-# OPTIONS_GHC -Wno-incomplete-patterns #-}
 
 module Codec.Borsh.Incremental.Decoder (
@@ -16,9 +18,12 @@ module Codec.Borsh.Incremental.Decoder (
 
 import Control.Applicative
 import Control.Monad
-import Control.Monad.Fail
 import Control.Monad.ST
 import Data.Word
+
+#if !MIN_VERSION_base(4,13,0)
+import Control.Monad.Fail
+#endif
 
 import qualified Data.ByteString      as S
 import qualified Data.ByteString.Lazy as L
