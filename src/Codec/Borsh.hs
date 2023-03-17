@@ -15,13 +15,15 @@ module Codec.Borsh (
   , BorshSizeSum(..)
   , BorshMaxSize(..)
     -- * Deriving-via support
-  , Struct(..)
+  , AsEnum(..)
+  , AsStruct(..)
   , KnownImpliesMax(..)
   ) where
 
 import Codec.Borsh.Class
     ( BorshSizeSum(..)
-    , Struct(..)
+    , AsEnum(..)
+    , AsStruct(..)
     , FromBorsh(..)
     , ToBorsh(..)
     , BorshSize(..)

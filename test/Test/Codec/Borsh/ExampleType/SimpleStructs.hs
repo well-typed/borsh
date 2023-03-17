@@ -23,7 +23,7 @@ data PolyStruct a = Poly a a a
            , BorshMaxSize
            , ToBorsh
            , FromBorsh
-           ) via Struct (PolyStruct a)
+           ) via AsStruct (PolyStruct a)
 
 instance Arbitrary a => Arbitrary (PolyStruct a) where
   arbitrary = Poly <$> arbitrary <*> arbitrary <*> arbitrary
@@ -39,7 +39,7 @@ data SimpleStruct1 = Struct1 Word8 () Word64
            , BorshMaxSize
            , ToBorsh
            , FromBorsh
-           ) via Struct SimpleStruct1
+           ) via AsStruct SimpleStruct1
 
 instance Arbitrary SimpleStruct1 where
   arbitrary = Struct1 <$> arbitrary <*> arbitrary <*> arbitrary
@@ -56,7 +56,7 @@ instance Arbitrary SimpleStruct1 where
 
 data SimpleStruct2 = Struct2 () SimpleStruct1 Word16
   deriving (Show, Eq, Ord, GHC.Generic, Generic)
-  deriving (BorshMaxSize, ToBorsh, FromBorsh) via Struct SimpleStruct2
+  deriving (BorshMaxSize, ToBorsh, FromBorsh) via AsStruct SimpleStruct2
 
 instance BorshSize SimpleStruct2 where
   type StaticBorshSize SimpleStruct2 = 'HasKnownSize

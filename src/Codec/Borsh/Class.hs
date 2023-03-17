@@ -5,14 +5,15 @@ module Codec.Borsh.Class (
     ToBorsh(..)
   , FromBorsh(..)
     -- ** Deriving-via support
-  , Struct(..)
+  , AsEnum(..)
+  , AsStruct(..)
+  , KnownImpliesMax(..)
     -- * Size information
   , KnownSize(..)
   , Size(..)
   , BorshSize(..)
   , BorshSizeSum(..)
   , BorshMaxSize(..)
-  , KnownImpliesMax(..)
     -- * Derived functionality
   , serialiseBorsh
   , deserialiseBorsh
@@ -60,37 +61,23 @@ deriving instance Eq   (Size a)
 
 class BorshSize (a :: Type) where
   type StaticBorshSize a :: KnownSize
-  type StaticBorshSize a = SumKnownSize (Code a)
 
-  -- | Size of the Borsh encoding, if known ahead of time
+  -- | Size of the Borsh encoding, if known statically (independent of a value)
   --
-  -- See 'encodeBorsh' for discussion of the generic instance.
+  -- There is no generic default implementation of 'borshSize'; instead use
+  -- deriving-via using 'AsStruct' or 'AsEnum'.
   borshSize :: Proxy a -> Size (StaticBorshSize a)
 
-  default borshSize ::
-       ( StaticBorshSize a ~ SumKnownSize (Code a)
-       , BorshSizeSum (Code a)
-       )
-    => Proxy a -> Size (StaticBorshSize a)
-  borshSize _ = borshSizeSum (Proxy @(Code a))
-
 class BorshMaxSize (a :: Type) where
-
   -- | Maximum size of the Borsh encoding
   --
-  -- See 'encodeBorsh' for discussion of the generic instance.
+  -- There is no generic default implementation of 'borshMaxSize'; instead use
+  -- deriving-via using 'AsStruct' or 'AsEnum'.
   --
-  -- /Note:/ It is possible to use the generic instance to derive this for your
-  -- own types, but recursive types should not be given an instance (and the
-  -- derived function will not terminate).
+  -- However, while it is possible to use deriving-via to derive 'BorshMaxSize'
+  -- for your own types, recursive types should /not/ be given an instance (and
+  -- the derived function will not terminate).
   borshMaxSize :: Proxy a -> Word32
-
-  default borshMaxSize ::
-       ( Generic a
-       , All2 BorshMaxSize (Code a)
-       )
-    => Proxy a -> Word32
-  borshMaxSize _ = borshMaxSize (Proxy @(SOP I (Code a)))
 
 -- | If the size of a type's Borsh encoding is statically known then we also
 -- know the maximum size of the encoding. Useful for deriving-via.
@@ -99,9 +86,7 @@ newtype KnownImpliesMax a = KnownImpliesMax { getKnownImpliesMax :: a }
 instance ( BorshSize a
          , StaticBorshSize a ~ 'HasKnownSize
          ) => BorshMaxSize (KnownImpliesMax a) where
-  borshMaxSize _ =
-    case borshSize (Proxy @a) of
-      SizeKnown n -> n
+  borshMaxSize _ = case borshSize (Proxy @a) of SizeKnown n -> n
 
 {-------------------------------------------------------------------------------
   Definition
@@ -110,33 +95,22 @@ instance ( BorshSize a
 class BorshSize a => ToBorsh a where
   -- | Encoder to Borsh
   --
-  -- NOTE: The default generic encoder uses the Borsh encoding for enums,
-  -- and will therefore use constructor tag; see 'Struct' for detailed
-  -- discussion. Since the spec mandates the presence of that constructor tag,
-  -- the generic encoder/decoder does not apply to types without constructors.
+  -- There is no generic default implementation of 'encodeBorsh'; instead use
+  -- deriving-via using 'AsStruct' or 'AsEnum'.
   encodeBorsh :: Encoder a
-
-  default encodeBorsh ::
-       (Generic a, BorshSizeSum (Code a), All2 ToBorsh (Code a))
-    => Encoder a
-  encodeBorsh = Encoder $ runEncoder encodeBorsh . from
 
 class BorshSize a => FromBorsh a where
   -- | Decode from Borsh
   --
-  -- See 'encodeBorsh' for discussion of the generic instance.
+  -- There is no generic default implementation of 'decodeBorsh'; instead use
+  -- deriving-via using 'AsStruct' or 'AsEnum'.
   decodeBorsh :: Decoder s a
 
-  default decodeBorsh ::
-       (Generic a, BorshSizeSum (Code a), All2 FromBorsh (Code a))
-    => Decoder s a
-  decodeBorsh = to <$> decodeBorsh
-
 {-------------------------------------------------------------------------------
-  Structs
+  Enums
 -------------------------------------------------------------------------------}
 
--- | Deriving-via support for structs
+-- | Deriving-via support for enums (general ADTs)
 --
 -- The Borsh spec <https://borsh.io/> mandates that enums have a tag indicating
 -- the constructor, even when there is only a single constructor in the enum.
@@ -145,37 +119,76 @@ class BorshSize a => FromBorsh a where
 -- the only difference between them is that a struct is an enum with a single
 -- constructor.
 --
--- The default generic encoder en decoder you get in 'ToBorsh' and 'FromBorsh'
--- will therefore add the tag, independent of the number of constructors. If
--- you want the encoding of a struct, without the tag, you need to use deriving
--- via:
+-- The generic encoder en decoder you get in 'ToBorsh' and 'FromBorsh' when
+-- deriving via @AsEnum@ will therefore add the tag, independent of the number of
+-- constructors:
+--
+-- > data MyEnum = ..
+-- >   deriving (BorshSize, ToBorsh, FromBorsh) via AsEnum MyEnum
+--
+-- If you want the encoding of a struct, without the tag, you need to derive via
+-- 'AsStruct'.
+newtype AsEnum a = AsEnum { getEnum :: a }
+
+instance BorshSizeSum (Code a) => BorshSize (AsEnum a) where
+  type StaticBorshSize (AsEnum a) = SumKnownSize (Code a)
+  borshSize _ = borshSizeSum (Proxy @(Code a))
+
+instance ( Generic a
+         , All2 BorshMaxSize (Code a)
+         ) => BorshMaxSize (AsEnum a) where
+  borshMaxSize _ = borshMaxSize (Proxy @(SOP I (Code a)))
+
+instance ( Generic a
+         , BorshSizeSum (Code a)
+         , All2 ToBorsh (Code a)
+         ) => ToBorsh (AsEnum a) where
+  encodeBorsh = contramap (from . getEnum) encodeBorsh
+
+instance ( Generic a
+         , BorshSizeSum  (Code a)
+         , All2 FromBorsh (Code a)
+         ) => FromBorsh (AsEnum a) where
+  decodeBorsh = fmap (AsEnum . to) decodeBorsh
+
+{-------------------------------------------------------------------------------
+  Structs
+-------------------------------------------------------------------------------}
+
+-- | Deriving-via support for structs
+--
+-- Usage:
 --
 -- > data MyStruct = ..
--- >   deriving (BorshSize, ToBorsh, FromBorsh) via Struct MyStruct
+-- >   deriving (BorshSize, ToBorsh, FromBorsh) via AsStruct MyStruct
 --
 -- NOTE: Doing so may have consequences for forwards compatibility: if a tag
 -- is present, additional constructors can be added without invalidating the
--- encoding of existing constructors.
-newtype Struct a = Struct { getStruct :: a }
+-- encoding of existing constructors. See also 'AsEnum'.
+newtype AsStruct a = AsStruct { getStruct :: a }
 
-instance (IsProductType a xs, All BorshSize xs) => BorshSize (Struct a) where
-  type StaticBorshSize (Struct a) = ProdKnownSize (ProductCode a)
+instance ( IsProductType a xs
+         , All BorshSize xs
+         ) => BorshSize (AsStruct a) where
+  type StaticBorshSize (AsStruct a) = ProdKnownSize (ProductCode a)
   borshSize _ = sizeOfProd (Proxy @(ProductCode a))
 
-instance (IsProductType a xs, All BorshMaxSize xs) => BorshMaxSize (Struct a) where
+instance ( IsProductType a xs
+         , All BorshMaxSize xs
+         ) => BorshMaxSize (AsStruct a) where
   borshMaxSize _ = borshMaxSize (Proxy @(NP I (ProductCode a)))
 
 instance ( IsProductType a xs
          , All BorshSize xs
          , All ToBorsh xs
-         ) => ToBorsh (Struct a) where
+         ) => ToBorsh (AsStruct a) where
   encodeBorsh = contramap (productTypeFrom . getStruct) encodeBorsh
 
 instance ( IsProductType a xs
          , All BorshSize xs
          , All FromBorsh xs
-         ) => FromBorsh (Struct a) where
-  decodeBorsh = fmap (Struct . productTypeTo) decodeBorsh
+         ) => FromBorsh (AsStruct a) where
+  decodeBorsh = fmap (AsStruct . productTypeTo) decodeBorsh
 
 {-------------------------------------------------------------------------------
   Derived functionality
@@ -254,11 +267,8 @@ instance BorshSize Text where
   type StaticBorshSize Text = 'HasVariableSize
   borshSize _ = SizeVariable
 
-instance BorshSize [a] where
-  -- Use generic defaults
-
-instance BorshSize (Maybe a) where
-  -- Use generic defaults
+deriving via AsEnum [a]       instance BorshSize [a]
+deriving via AsEnum (Maybe a) instance BorshSize (Maybe a)
 
 instance BorshSize (Set a) where
   type StaticBorshSize (Set a) = 'HasVariableSize
@@ -300,8 +310,7 @@ instance ( KnownNat n
          ) => BorshMaxSize (FixedSizeArray n a) where
   borshMaxSize _ = fromIntegral (natVal (Proxy @n)) * borshMaxSize (Proxy @a)
 
-instance BorshMaxSize a => BorshMaxSize (Maybe a) where
-  -- Use generic defaults
+deriving via AsEnum (Maybe a) instance BorshMaxSize a => BorshMaxSize (Maybe a)
 
 instance (All2 BorshMaxSize xss, All SListI xss) => BorshMaxSize (SOP I xss) where
   borshMaxSize _ = aux . hcollapse $ sizes
@@ -417,32 +426,32 @@ instance ( BorshSizeSum xss
 
 -- size 0
 
-deriving via Struct () instance BorshSize    ()
-deriving via Struct () instance BorshMaxSize ()
-deriving via Struct () instance ToBorsh      ()
-deriving via Struct () instance FromBorsh    ()
+deriving via AsStruct () instance BorshSize    ()
+deriving via AsStruct () instance BorshMaxSize ()
+deriving via AsStruct () instance ToBorsh      ()
+deriving via AsStruct () instance FromBorsh    ()
 
 -- size 2
 
-deriving via Struct (a, b)
+deriving via AsStruct (a, b)
          instance
               ( BorshSize a
               , BorshSize b
               )
            => BorshSize (a, b)
-deriving via Struct (a, b)
+deriving via AsStruct (a, b)
          instance
               ( BorshMaxSize a
               , BorshMaxSize b
               )
            => BorshMaxSize (a, b)
-deriving via Struct (a, b)
+deriving via AsStruct (a, b)
          instance
               ( ToBorsh a
               , ToBorsh b
               )
            => ToBorsh (a, b)
-deriving via Struct (a, b)
+deriving via AsStruct (a, b)
          instance
               ( FromBorsh a
               , FromBorsh b
@@ -451,28 +460,28 @@ deriving via Struct (a, b)
 
 -- size 3
 
-deriving via Struct (a, b, c)
+deriving via AsStruct (a, b, c)
          instance
               ( BorshSize a
               , BorshSize b
               , BorshSize c
               )
            => BorshSize (a, b, c)
-deriving via Struct (a, b, c)
+deriving via AsStruct (a, b, c)
          instance
               ( BorshMaxSize a
               , BorshMaxSize b
               , BorshMaxSize c
               )
            => BorshMaxSize (a, b, c)
-deriving via Struct (a, b, c)
+deriving via AsStruct (a, b, c)
          instance
               ( ToBorsh a
               , ToBorsh b
               , ToBorsh c
               )
            => ToBorsh (a, b, c)
-deriving via Struct (a, b, c)
+deriving via AsStruct (a, b, c)
          instance
               ( FromBorsh a
               , FromBorsh b
@@ -482,7 +491,7 @@ deriving via Struct (a, b, c)
 
 -- size 4
 
-deriving via Struct (a, b, c, d)
+deriving via AsStruct (a, b, c, d)
          instance
               ( BorshSize a
               , BorshSize b
@@ -490,7 +499,7 @@ deriving via Struct (a, b, c, d)
               , BorshSize d
               )
            => BorshSize (a, b, c, d)
-deriving via Struct (a, b, c, d)
+deriving via AsStruct (a, b, c, d)
          instance
               ( BorshMaxSize a
               , BorshMaxSize b
@@ -498,7 +507,7 @@ deriving via Struct (a, b, c, d)
               , BorshMaxSize d
               )
            => BorshMaxSize (a, b, c, d)
-deriving via Struct (a, b, c, d)
+deriving via AsStruct (a, b, c, d)
          instance
               ( ToBorsh a
               , ToBorsh b
@@ -506,7 +515,7 @@ deriving via Struct (a, b, c, d)
               , ToBorsh d
               )
            => ToBorsh (a, b, c, d)
-deriving via Struct (a, b, c, d)
+deriving via AsStruct (a, b, c, d)
          instance
               ( FromBorsh a
               , FromBorsh b
@@ -517,7 +526,7 @@ deriving via Struct (a, b, c, d)
 
 -- size 5
 
-deriving via Struct (a, b, c, d, e)
+deriving via AsStruct (a, b, c, d, e)
          instance
               ( BorshSize a
               , BorshSize b
@@ -526,7 +535,7 @@ deriving via Struct (a, b, c, d, e)
               , BorshSize e
               )
            => BorshSize (a, b, c, d, e)
-deriving via Struct (a, b, c, d, e)
+deriving via AsStruct (a, b, c, d, e)
          instance
               ( BorshMaxSize a
               , BorshMaxSize b
@@ -535,7 +544,7 @@ deriving via Struct (a, b, c, d, e)
               , BorshMaxSize e
               )
            => BorshMaxSize (a, b, c, d, e)
-deriving via Struct (a, b, c, d, e)
+deriving via AsStruct (a, b, c, d, e)
          instance
               ( ToBorsh a
               , ToBorsh b
@@ -544,7 +553,7 @@ deriving via Struct (a, b, c, d, e)
               , ToBorsh e
               )
            => ToBorsh (a, b, c, d, e)
-deriving via Struct (a, b, c, d, e)
+deriving via AsStruct (a, b, c, d, e)
          instance
               ( FromBorsh a
               , FromBorsh b
@@ -556,7 +565,7 @@ deriving via Struct (a, b, c, d, e)
 
 -- size 6
 
-deriving via Struct (a, b, c, d, e, f)
+deriving via AsStruct (a, b, c, d, e, f)
          instance
               ( BorshSize a
               , BorshSize b
@@ -566,7 +575,7 @@ deriving via Struct (a, b, c, d, e, f)
               , BorshSize f
               )
            => BorshSize (a, b, c, d, e, f)
-deriving via Struct (a, b, c, d, e, f)
+deriving via AsStruct (a, b, c, d, e, f)
          instance
               ( BorshMaxSize a
               , BorshMaxSize b
@@ -576,7 +585,7 @@ deriving via Struct (a, b, c, d, e, f)
               , BorshMaxSize f
               )
            => BorshMaxSize (a, b, c, d, e, f)
-deriving via Struct (a, b, c, d, e, f)
+deriving via AsStruct (a, b, c, d, e, f)
          instance
               ( ToBorsh a
               , ToBorsh b
@@ -586,7 +595,7 @@ deriving via Struct (a, b, c, d, e, f)
               , ToBorsh f
               )
            => ToBorsh (a, b, c, d, e, f)
-deriving via Struct (a, b, c, d, e, f)
+deriving via AsStruct (a, b, c, d, e, f)
          instance
               ( FromBorsh a
               , FromBorsh b
@@ -599,7 +608,7 @@ deriving via Struct (a, b, c, d, e, f)
 
 -- size 7
 
-deriving via Struct (a, b, c, d, e, f, g)
+deriving via AsStruct (a, b, c, d, e, f, g)
          instance
               ( BorshSize a
               , BorshSize b
@@ -610,7 +619,7 @@ deriving via Struct (a, b, c, d, e, f, g)
               , BorshSize g
               )
            => BorshSize (a, b, c, d, e, f, g)
-deriving via Struct (a, b, c, d, e, f, g)
+deriving via AsStruct (a, b, c, d, e, f, g)
          instance
               ( BorshMaxSize a
               , BorshMaxSize b
@@ -621,7 +630,7 @@ deriving via Struct (a, b, c, d, e, f, g)
               , BorshMaxSize g
               )
            => BorshMaxSize (a, b, c, d, e, f, g)
-deriving via Struct (a, b, c, d, e, f, g)
+deriving via AsStruct (a, b, c, d, e, f, g)
          instance
               ( ToBorsh a
               , ToBorsh b
@@ -632,7 +641,7 @@ deriving via Struct (a, b, c, d, e, f, g)
               , ToBorsh g
               )
            => ToBorsh (a, b, c, d, e, f, g)
-deriving via Struct (a, b, c, d, e, f, g)
+deriving via AsStruct (a, b, c, d, e, f, g)
          instance
               ( FromBorsh a
               , FromBorsh b
@@ -646,7 +655,7 @@ deriving via Struct (a, b, c, d, e, f, g)
 
 -- size 8
 
-deriving via Struct (a, b, c, d, e, f, g, h)
+deriving via AsStruct (a, b, c, d, e, f, g, h)
          instance
               ( BorshSize a
               , BorshSize b
@@ -658,7 +667,7 @@ deriving via Struct (a, b, c, d, e, f, g, h)
               , BorshSize h
               )
            => BorshSize (a, b, c, d, e, f, g, h)
-deriving via Struct (a, b, c, d, e, f, g, h)
+deriving via AsStruct (a, b, c, d, e, f, g, h)
          instance
               ( BorshMaxSize a
               , BorshMaxSize b
@@ -670,7 +679,7 @@ deriving via Struct (a, b, c, d, e, f, g, h)
               , BorshMaxSize h
               )
            => BorshMaxSize (a, b, c, d, e, f, g, h)
-deriving via Struct (a, b, c, d, e, f, g, h)
+deriving via AsStruct (a, b, c, d, e, f, g, h)
          instance
               ( ToBorsh a
               , ToBorsh b
@@ -682,7 +691,7 @@ deriving via Struct (a, b, c, d, e, f, g, h)
               , ToBorsh h
               )
            => ToBorsh (a, b, c, d, e, f, g, h)
-deriving via Struct (a, b, c, d, e, f, g, h)
+deriving via AsStruct (a, b, c, d, e, f, g, h)
          instance
               ( FromBorsh a
               , FromBorsh b
@@ -697,7 +706,7 @@ deriving via Struct (a, b, c, d, e, f, g, h)
 
 -- size 9
 
-deriving via Struct (a, b, c, d, e, f, g, h, i)
+deriving via AsStruct (a, b, c, d, e, f, g, h, i)
          instance
               ( BorshSize a
               , BorshSize b
@@ -710,7 +719,7 @@ deriving via Struct (a, b, c, d, e, f, g, h, i)
               , BorshSize i
               )
            => BorshSize (a, b, c, d, e, f, g, h, i)
-deriving via Struct (a, b, c, d, e, f, g, h, i)
+deriving via AsStruct (a, b, c, d, e, f, g, h, i)
          instance
               ( BorshMaxSize a
               , BorshMaxSize b
@@ -723,7 +732,7 @@ deriving via Struct (a, b, c, d, e, f, g, h, i)
               , BorshMaxSize i
               )
            => BorshMaxSize (a, b, c, d, e, f, g, h, i)
-deriving via Struct (a, b, c, d, e, f, g, h, i)
+deriving via AsStruct (a, b, c, d, e, f, g, h, i)
          instance
               ( ToBorsh a
               , ToBorsh b
@@ -736,7 +745,7 @@ deriving via Struct (a, b, c, d, e, f, g, h, i)
               , ToBorsh i
               )
            => ToBorsh (a, b, c, d, e, f, g, h, i)
-deriving via Struct (a, b, c, d, e, f, g, h, i)
+deriving via AsStruct (a, b, c, d, e, f, g, h, i)
          instance
               ( FromBorsh a
               , FromBorsh b
@@ -752,7 +761,7 @@ deriving via Struct (a, b, c, d, e, f, g, h, i)
 
 -- size 10
 
-deriving via Struct (a, b, c, d, e, f, g, h, i, j)
+deriving via AsStruct (a, b, c, d, e, f, g, h, i, j)
          instance
               ( BorshSize a
               , BorshSize b
@@ -766,7 +775,7 @@ deriving via Struct (a, b, c, d, e, f, g, h, i, j)
               , BorshSize j
               )
            => BorshSize (a, b, c, d, e, f, g, h, i, j)
-deriving via Struct (a, b, c, d, e, f, g, h, i, j)
+deriving via AsStruct (a, b, c, d, e, f, g, h, i, j)
          instance
               ( BorshMaxSize a
               , BorshMaxSize b
@@ -780,7 +789,7 @@ deriving via Struct (a, b, c, d, e, f, g, h, i, j)
               , BorshMaxSize j
               )
            => BorshMaxSize (a, b, c, d, e, f, g, h, i, j)
-deriving via Struct (a, b, c, d, e, f, g, h, i, j)
+deriving via AsStruct (a, b, c, d, e, f, g, h, i, j)
          instance
               ( ToBorsh a
               , ToBorsh b
@@ -794,7 +803,7 @@ deriving via Struct (a, b, c, d, e, f, g, h, i, j)
               , ToBorsh j
               )
            => ToBorsh (a, b, c, d, e, f, g, h, i, j)
-deriving via Struct (a, b, c, d, e, f, g, h, i, j)
+deriving via AsStruct (a, b, c, d, e, f, g, h, i, j)
          instance
               ( FromBorsh a
               , FromBorsh b
@@ -867,10 +876,21 @@ instance FromBorsh Bool where
 
 -- Either
 
-deriving instance                                     BorshSize    (Either a b)
-deriving instance (BorshMaxSize a, BorshMaxSize b) => BorshMaxSize (Either a b)
-deriving instance (ToBorsh      a, ToBorsh      b) => ToBorsh      (Either a b)
-deriving instance (FromBorsh    a, FromBorsh    b) => FromBorsh    (Either a b)
+deriving
+  via AsEnum (Either a b)
+  instance BorshSize (Either a b)
+
+deriving
+  via AsEnum (Either a b)
+  instance (BorshMaxSize a, BorshMaxSize b) => BorshMaxSize (Either a b)
+
+deriving
+  via AsEnum (Either a b)
+  instance (ToBorsh a, ToBorsh b) => ToBorsh (Either a b)
+
+deriving
+  via AsEnum (Either a b)
+  instance (FromBorsh a, FromBorsh b) => FromBorsh (Either a b)
 
 {-------------------------------------------------------------------------------
   Internal auxiliary: size of products and sums-of-products
@@ -928,7 +948,7 @@ instance BorshSizeSum '[] where
 instance All BorshSize xs => BorshSizeSum '[xs] where
   borshSizeSum _ =
     -- This assumes the presence of the constructor tag
-    -- (see detailed discussion in 'Struct')
+    -- (see detailed discussion in 'AsStruct')
     case sizeOfProd (Proxy @xs) of
       SizeKnown sz -> SizeKnown (sz + 1)
       SizeVariable -> SizeVariable

@@ -15,18 +15,8 @@ import Test.Codec.Borsh.Util.QuickCheck
 
 -- | Binary trees
 data BTree a = BTip | BLeaf a | BNode (BTree a) (BTree a)
-  deriving (
-      Show
-    , Eq
-    , Ord
-    , Functor
-    , Foldable
-    , Traversable
-    , GHC.Generic
-    , Generic
-    , BorshSize
-    , FromBorsh
-    )
+  deriving (Show, Eq, Ord, Functor, Foldable, Traversable, GHC.Generic, Generic)
+  deriving (BorshSize, FromBorsh) via AsEnum (BTree a)
 
 -- Manual ToBorsh instance as a sort of "golden" test for the derived FromBorsh
 -- instance
