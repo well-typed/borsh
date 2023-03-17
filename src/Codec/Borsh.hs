@@ -13,20 +13,25 @@ module Codec.Borsh (
   , Size(..)
   , KnownSize(..)
   , BorshSizeSum(..)
+  , BorshMaxSize(..)
     -- * Deriving-via support
   , Struct(..)
+  , KnownImpliesMax(..)
   ) where
 
 import Codec.Borsh.Class
-    ( BorshSizeSum(..),
-      Struct(..),
-      FromBorsh(..),
-      ToBorsh(..),
-      BorshSize(..),
-      Size(..),
-      KnownSize(..),
-      serialiseBorsh,
-      deserialiseBorsh )
+    ( BorshSizeSum(..)
+    , Struct(..)
+    , FromBorsh(..)
+    , ToBorsh(..)
+    , BorshSize(..)
+    , Size(..)
+    , KnownSize(..)
+    , BorshMaxSize(..)
+    , KnownImpliesMax(..)
+    , serialiseBorsh
+    , deserialiseBorsh
+    )
 import Codec.Borsh.Encoding (Encoder(..))
 import Codec.Borsh.Incremental (Decoder)
 import Codec.Borsh.Incremental.Monad (DeserialiseFailure(..))

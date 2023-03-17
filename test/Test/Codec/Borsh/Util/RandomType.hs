@@ -5,12 +5,10 @@ module Test.Codec.Borsh.Util.RandomType (
     -- * Types
     BorshType(..)
   , SomeBorshType(..)
+  , borshTypeMaxSize
+
     -- * Values of those types
   , SomeBorshValue(..)
-
-  -- TODO remove these
-  , arbitraryValue
-  , arbitraryType
   ) where
 
 import Control.Monad
@@ -327,6 +325,7 @@ data BorshType :: Type -> Type where
   BtEnum ::
        ( All2 CanTest (xs ': xss)
        , All (Compose Show (NP BorshType)) (xs ': xss)
+       , All SListI (xs ': xss)
        )
     => -- POP: For every constructor, and every argument to every constructor,
        -- what is the type of that argument?
@@ -359,6 +358,61 @@ data SomeBorshType where
   SomeType :: CanTest a => BorshType a -> SomeBorshType
 
 deriving instance Show SomeBorshType
+
+{-------------------------------------------------------------------------------
+  Maximum size
+-------------------------------------------------------------------------------}
+
+borshTypeMaxSize :: BorshType a -> Maybe (Dict BorshMaxSize a)
+borshTypeMaxSize = \case
+    BtSimple bt -> borshSimpleTypeMaxSize bt
+    BtArray l bt -> do
+      Dict <- borshTypeMaxSize bt
+      return Dict
+    BtVec _ -> Nothing
+    BtOption bt -> do
+      Dict <- borshTypeMaxSize bt
+      return Dict
+    BtHashSet _ -> Nothing
+    BtHashMap _ _ -> Nothing
+    BtStruct xs -> do
+      Dict <- fmap all_NP . hsequence' $ hmap (Comp . borshTypeMaxSize) xs
+      return Dict
+    BtEnum xss -> do
+      Dict <- fmap all_POP . hsequence' $ hmap (Comp . borshTypeMaxSize) xss
+      return Dict
+    BtBTree _ -> Nothing
+    BtNTree _ -> Nothing
+    BtPolyStruct bt -> do
+      Dict <- borshTypeMaxSize bt
+      return Dict
+    BtEither bt1 bt2 -> do
+      Dict <- borshTypeMaxSize bt1
+      Dict <- borshTypeMaxSize bt2
+      return Dict
+
+borshSimpleTypeMaxSize :: BorshSimpleType a -> Maybe (Dict BorshMaxSize a)
+borshSimpleTypeMaxSize = \case
+    BtU8            -> Just Dict
+    BtU16           -> Just Dict
+    BtU32           -> Just Dict
+    BtU64           -> Just Dict
+    BtU128          -> Just Dict
+    BtI8            -> Just Dict
+    BtI16           -> Just Dict
+    BtI32           -> Just Dict
+    BtI64           -> Just Dict
+    BtI128          -> Just Dict
+    BtF32           -> Just Dict
+    BtF64           -> Just Dict
+    BtText          -> Nothing
+    BtUnit          -> Just Dict
+    BtSimpleList    -> Nothing
+    BtSimpleStruct1 -> Just Dict
+    BtSimpleStruct2 -> Just Dict
+    BtByteString    -> Nothing
+    BtChar          -> Just Dict
+    BtBool          -> Just Dict
 
 {-------------------------------------------------------------------------------
   Shrinking types

@@ -11,6 +11,8 @@ module Codec.Borsh.Class (
   , Size(..)
   , BorshSize(..)
   , BorshSizeSum(..)
+  , BorshMaxSize(..)
+  , KnownImpliesMax(..)
     -- * Derived functionality
   , serialiseBorsh
   , deserialiseBorsh
@@ -50,7 +52,7 @@ data KnownSize = HasKnownSize | HasVariableSize
 
 -- | The statically known size of encodings of values of a particular type.
 data Size (a :: KnownSize) where
-  SizeKnown    :: Int -> Size 'HasKnownSize
+  SizeKnown    :: Word32 -> Size 'HasKnownSize
   SizeVariable :: Size 'HasVariableSize
 
 deriving instance Show (Size a)
@@ -71,6 +73,35 @@ class BorshSize (a :: Type) where
        )
     => Proxy a -> Size (StaticBorshSize a)
   borshSize _ = borshSizeSum (Proxy @(Code a))
+
+class BorshMaxSize (a :: Type) where
+
+  -- | Maximum size of the Borsh encoding
+  --
+  -- See 'encodeBorsh' for discussion of the generic instance.
+  --
+  -- /Note:/ It is possible to use the generic instance to derive this for your
+  -- own types, but recursive types should not be given an instance (and the
+  -- derived function will not terminate).
+  borshMaxSize :: Proxy a -> Word32
+
+  default borshMaxSize ::
+       ( Generic a
+       , All2 BorshMaxSize (Code a)
+       )
+    => Proxy a -> Word32
+  borshMaxSize _ = borshMaxSize (Proxy @(SOP I (Code a)))
+
+-- | If the size of a type's Borsh encoding is statically known then we also
+-- know the maximum size of the encoding. Useful for deriving-via.
+newtype KnownImpliesMax a = KnownImpliesMax { getKnownImpliesMax :: a }
+
+instance ( BorshSize a
+         , StaticBorshSize a ~ 'HasKnownSize
+         ) => BorshMaxSize (KnownImpliesMax a) where
+  borshMaxSize _ =
+    case borshSize (Proxy @a) of
+      SizeKnown n -> n
 
 {-------------------------------------------------------------------------------
   Definition
@@ -130,6 +161,9 @@ newtype Struct a = Struct { getStruct :: a }
 instance (IsProductType a xs, All BorshSize xs) => BorshSize (Struct a) where
   type StaticBorshSize (Struct a) = ProdKnownSize (ProductCode a)
   borshSize _ = sizeOfProd (Proxy @(ProductCode a))
+
+instance (IsProductType a xs, All BorshMaxSize xs) => BorshMaxSize (Struct a) where
+  borshMaxSize _ = borshMaxSize (Proxy @(NP I (ProductCode a)))
 
 instance ( IsProductType a xs
          , All BorshSize xs
@@ -243,6 +277,55 @@ instance BorshSizeSum xss => BorshSize (SOP I xss) where
   borshSize _ = borshSizeSum (Proxy @xss)
 
 {-------------------------------------------------------------------------------
+  Maximum sizes
+-------------------------------------------------------------------------------}
+
+deriving via KnownImpliesMax Word8   instance BorshMaxSize Word8
+deriving via KnownImpliesMax Word16  instance BorshMaxSize Word16
+deriving via KnownImpliesMax Word32  instance BorshMaxSize Word32
+deriving via KnownImpliesMax Word64  instance BorshMaxSize Word64
+deriving via KnownImpliesMax Word128 instance BorshMaxSize Word128
+
+deriving via KnownImpliesMax Int8   instance BorshMaxSize Int8
+deriving via KnownImpliesMax Int16  instance BorshMaxSize Int16
+deriving via KnownImpliesMax Int32  instance BorshMaxSize Int32
+deriving via KnownImpliesMax Int64  instance BorshMaxSize Int64
+deriving via KnownImpliesMax Int128 instance BorshMaxSize Int128
+
+deriving via KnownImpliesMax Float  instance BorshMaxSize Float
+deriving via KnownImpliesMax Double instance BorshMaxSize Double
+
+instance ( KnownNat n
+         , BorshMaxSize a
+         ) => BorshMaxSize (FixedSizeArray n a) where
+  borshMaxSize _ = fromIntegral (natVal (Proxy @n)) * borshMaxSize (Proxy @a)
+
+instance BorshMaxSize a => BorshMaxSize (Maybe a) where
+  -- Use generic defaults
+
+instance (All2 BorshMaxSize xss, All SListI xss) => BorshMaxSize (SOP I xss) where
+  borshMaxSize _ = aux . hcollapse $ sizes
+    where
+      aux :: [[Word32]] -> Word32
+      aux [] = 1
+      aux xs = 1 + maximum (map sum xs)
+
+      borshMaxSize' :: forall a. (BorshMaxSize a) => K Word32 a
+      borshMaxSize' = K $ borshMaxSize (Proxy @a)
+
+      sizes :: POP (K Word32) xss
+      sizes = hcpure (Proxy @BorshMaxSize) borshMaxSize'
+
+instance (All BorshMaxSize xs) => BorshMaxSize (NP I xs) where
+  borshMaxSize _ = sum . hcollapse $ sizes
+    where
+      borshMaxSize' :: forall a. (BorshMaxSize a) => K Word32 a
+      borshMaxSize' = K $ borshMaxSize (Proxy @a)
+
+      sizes :: NP (K Word32) xs
+      sizes = hcpure (Proxy @BorshMaxSize) borshMaxSize'
+
+{-------------------------------------------------------------------------------
   ToBorsh instances
 -------------------------------------------------------------------------------}
 
@@ -334,9 +417,10 @@ instance ( BorshSizeSum xss
 
 -- size 0
 
-deriving via Struct () instance BorshSize ()
-deriving via Struct () instance ToBorsh   ()
-deriving via Struct () instance FromBorsh ()
+deriving via Struct () instance BorshSize    ()
+deriving via Struct () instance BorshMaxSize ()
+deriving via Struct () instance ToBorsh      ()
+deriving via Struct () instance FromBorsh    ()
 
 -- size 2
 
@@ -346,6 +430,12 @@ deriving via Struct (a, b)
               , BorshSize b
               )
            => BorshSize (a, b)
+deriving via Struct (a, b)
+         instance
+              ( BorshMaxSize a
+              , BorshMaxSize b
+              )
+           => BorshMaxSize (a, b)
 deriving via Struct (a, b)
          instance
               ( ToBorsh a
@@ -368,6 +458,13 @@ deriving via Struct (a, b, c)
               , BorshSize c
               )
            => BorshSize (a, b, c)
+deriving via Struct (a, b, c)
+         instance
+              ( BorshMaxSize a
+              , BorshMaxSize b
+              , BorshMaxSize c
+              )
+           => BorshMaxSize (a, b, c)
 deriving via Struct (a, b, c)
          instance
               ( ToBorsh a
@@ -393,6 +490,14 @@ deriving via Struct (a, b, c, d)
               , BorshSize d
               )
            => BorshSize (a, b, c, d)
+deriving via Struct (a, b, c, d)
+         instance
+              ( BorshMaxSize a
+              , BorshMaxSize b
+              , BorshMaxSize c
+              , BorshMaxSize d
+              )
+           => BorshMaxSize (a, b, c, d)
 deriving via Struct (a, b, c, d)
          instance
               ( ToBorsh a
@@ -421,6 +526,15 @@ deriving via Struct (a, b, c, d, e)
               , BorshSize e
               )
            => BorshSize (a, b, c, d, e)
+deriving via Struct (a, b, c, d, e)
+         instance
+              ( BorshMaxSize a
+              , BorshMaxSize b
+              , BorshMaxSize c
+              , BorshMaxSize d
+              , BorshMaxSize e
+              )
+           => BorshMaxSize (a, b, c, d, e)
 deriving via Struct (a, b, c, d, e)
          instance
               ( ToBorsh a
@@ -452,6 +566,16 @@ deriving via Struct (a, b, c, d, e, f)
               , BorshSize f
               )
            => BorshSize (a, b, c, d, e, f)
+deriving via Struct (a, b, c, d, e, f)
+         instance
+              ( BorshMaxSize a
+              , BorshMaxSize b
+              , BorshMaxSize c
+              , BorshMaxSize d
+              , BorshMaxSize e
+              , BorshMaxSize f
+              )
+           => BorshMaxSize (a, b, c, d, e, f)
 deriving via Struct (a, b, c, d, e, f)
          instance
               ( ToBorsh a
@@ -486,6 +610,17 @@ deriving via Struct (a, b, c, d, e, f, g)
               , BorshSize g
               )
            => BorshSize (a, b, c, d, e, f, g)
+deriving via Struct (a, b, c, d, e, f, g)
+         instance
+              ( BorshMaxSize a
+              , BorshMaxSize b
+              , BorshMaxSize c
+              , BorshMaxSize d
+              , BorshMaxSize e
+              , BorshMaxSize f
+              , BorshMaxSize g
+              )
+           => BorshMaxSize (a, b, c, d, e, f, g)
 deriving via Struct (a, b, c, d, e, f, g)
          instance
               ( ToBorsh a
@@ -523,6 +658,18 @@ deriving via Struct (a, b, c, d, e, f, g, h)
               , BorshSize h
               )
            => BorshSize (a, b, c, d, e, f, g, h)
+deriving via Struct (a, b, c, d, e, f, g, h)
+         instance
+              ( BorshMaxSize a
+              , BorshMaxSize b
+              , BorshMaxSize c
+              , BorshMaxSize d
+              , BorshMaxSize e
+              , BorshMaxSize f
+              , BorshMaxSize g
+              , BorshMaxSize h
+              )
+           => BorshMaxSize (a, b, c, d, e, f, g, h)
 deriving via Struct (a, b, c, d, e, f, g, h)
          instance
               ( ToBorsh a
@@ -563,6 +710,19 @@ deriving via Struct (a, b, c, d, e, f, g, h, i)
               , BorshSize i
               )
            => BorshSize (a, b, c, d, e, f, g, h, i)
+deriving via Struct (a, b, c, d, e, f, g, h, i)
+         instance
+              ( BorshMaxSize a
+              , BorshMaxSize b
+              , BorshMaxSize c
+              , BorshMaxSize d
+              , BorshMaxSize e
+              , BorshMaxSize f
+              , BorshMaxSize g
+              , BorshMaxSize h
+              , BorshMaxSize i
+              )
+           => BorshMaxSize (a, b, c, d, e, f, g, h, i)
 deriving via Struct (a, b, c, d, e, f, g, h, i)
          instance
               ( ToBorsh a
@@ -606,6 +766,20 @@ deriving via Struct (a, b, c, d, e, f, g, h, i, j)
               , BorshSize j
               )
            => BorshSize (a, b, c, d, e, f, g, h, i, j)
+deriving via Struct (a, b, c, d, e, f, g, h, i, j)
+         instance
+              ( BorshMaxSize a
+              , BorshMaxSize b
+              , BorshMaxSize c
+              , BorshMaxSize d
+              , BorshMaxSize e
+              , BorshMaxSize f
+              , BorshMaxSize g
+              , BorshMaxSize h
+              , BorshMaxSize i
+              , BorshMaxSize j
+              )
+           => BorshMaxSize (a, b, c, d, e, f, g, h, i, j)
 deriving via Struct (a, b, c, d, e, f, g, h, i, j)
          instance
               ( ToBorsh a
@@ -669,6 +843,8 @@ instance BorshSize Char where
   type StaticBorshSize Char = 'HasKnownSize
   borshSize _ = SizeKnown 4
 
+deriving via KnownImpliesMax Char instance BorshMaxSize Char
+
 instance ToBorsh Char where
   encodeBorsh = encodeChar
 
@@ -681,6 +857,8 @@ instance BorshSize Bool where
   type StaticBorshSize Bool = 'HasKnownSize
   borshSize _ = SizeKnown 1
 
+deriving via KnownImpliesMax Bool instance BorshMaxSize Bool
+
 instance ToBorsh Bool where
   encodeBorsh = encodeBool
 
@@ -689,9 +867,10 @@ instance FromBorsh Bool where
 
 -- Either
 
-deriving instance BorshSize (Either a b)
-deriving instance (ToBorsh   a, ToBorsh   b) => ToBorsh   (Either a b)
-deriving instance (FromBorsh a, FromBorsh b) => FromBorsh (Either a b)
+deriving instance                                     BorshSize    (Either a b)
+deriving instance (BorshMaxSize a, BorshMaxSize b) => BorshMaxSize (Either a b)
+deriving instance (ToBorsh      a, ToBorsh      b) => ToBorsh      (Either a b)
+deriving instance (FromBorsh    a, FromBorsh    b) => FromBorsh    (Either a b)
 
 {-------------------------------------------------------------------------------
   Internal auxiliary: size of products and sums-of-products

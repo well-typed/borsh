@@ -5,6 +5,8 @@ module Test.Codec.Borsh.Util.QuickCheck (
     -- * Generators
   , split2
   , splitN
+    -- * Assertions
+  , assertLE
   ) where
 
 import Control.Monad
@@ -49,3 +51,13 @@ splitN n = shuffle >=> go
         (xs',y:ys) ->
           return $ xs' ++ (x:y):ys
 
+{-------------------------------------------------------------------------------
+  Assertions
+-------------------------------------------------------------------------------}
+
+assertLE :: (Show a, Ord a) => a -> a -> Property
+assertLE x y =
+  if x <= y then
+    property True
+  else
+    counterexample (show y ++ " > " ++ show x) $ property False
